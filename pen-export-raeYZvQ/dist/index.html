@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+
+  <head>
+    <meta charset="UTF-8">
+    <title>粒子吸引</title>
+    <link rel="stylesheet" href="./style.css">
+
+  </head>
+    
+  <body>
+  <!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>互动代码艺术 - 星云流体</title>
+    <style>
+        /* 设置页面样式，移除边距，使画布全屏 */
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden; /* 防止滚动条出现 */
+            background-color: #000; /* 黑色背景 */
+        }
+        canvas {
+            display: block; /* 防止画布底部出现微小白边 */
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="artCanvas"></canvas>
+
+<script>
+    /**
+     * 配置区域
+     * 你可以尝试修改这些数字来改变艺术效果！
+     */
+    const config = {
+        particleCount: 400,     // 粒子的数量。越多越密集，但可能影响性能。
+        particleBaseSize: 5,    // 粒子的基础大小。
+        attractionForce: 0.2,  // 鼠标吸引力的大小。
+        repulsionForce: 0.2,    // 鼠标点击时的排斥力大小。
+        friction: 0.96,         // 摩擦力 (0.9 - 0.99)。越小粒子停得越快。
+        trailLength: 0.1,       // 拖尾效果长度 (0.05 - 0.3)。数值越小，拖尾越长。
+        colorSpeed: 0.5         // 色彩变换的速度。
+    };
+
+
+    // --- 初始化画布 ---
+    const canvas = document.getElementById('artCanvas');
+    const ctx = canvas.getContext('2d');
+
+    let width, height;
+    let particles = [];
+    let hue = 0; // 初始色相
+
+    // 鼠标状态
+    const mouse = {
+        x: null,
+        y: null,
+        isPressed: false
+    };
+
+    // 设置画布大小为窗口大小
+    function resizeCanvas() {
+        width = canvas.width = window.innerWidth;
+        height = canvas.height = window.innerHeight;
+        // 如果是第一次调整大小，初始化鼠标位置在中心，避免粒子一开始就飞出屏幕
+        if (mouse.x === null) {
+            mouse.x = width / 2;
+            mouse.y = height / 2;
+        }
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas(); // 初始调用一次
+
+
+    // --- 事件监听 ---
+
+    // 追踪鼠标移动
+    canvas.addEventListener('mousemove', (e) => {
+        mouse.x = e.clientX;
+        mouse.y = e.clientY;
+    });
+
+    // 追踪鼠标点击状态
+    canvas.addEventListener('mousedown', () => mouse.isPressed = true);
+    canvas.addEventListener('mouseup', () => mouse.isPressed = false);
+
+    // 支持触屏设备 (简单的适配)
+    canvas.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        mouse.x = e.touches[0].clientX;
+        mouse.y = e.touches[0].clientY;
+    }, { passive: false });
+    canvas.addEventListener('touchstart', () => mouse.isPressed = true);
+    canvas.addEventListener('touchend', () => mouse.isPressed = false);
+
+
+    // --- 粒子类定义 ---
+    class Particle {
+        constructor() {
+            // 初始位置在画布中央随机附近
+            this.x = width / 2 + (Math.random() - 0.5) * 200;
+            this.y = height / 2 + (Math.random() - 0.5) * 200;
+            // 初始速度 (向量)
+            this.vx = (Math.random() - 0.5) * 5;
+            this.vy = (Math.random() - 0.5) * 5;
+            // 大小和颜色差异
+            this.size = Math.random() * config.particleBaseSize + 1;
+            this.colorOffset = Math.random() * 60; // 每个粒子颜色的微小偏差
+        }
+
+        // 更新粒子状态 (物理计算核心)
+        update() {
+            // 1. 计算鼠标与粒子的距离和角度
+            const dx = mouse.x - this.x;
+            const dy = mouse.y - this.y;
+            // 使用勾股定理计算距离，并设置一个最小值防止除以零导致飞出宇宙
+            let distance = Math.sqrt(dx * dx + dy * dy);
+            distance = Math.max(distance, 10); 
+
+            // 计算角度
+            const angle = Math.atan2(dy, dx);
+
+            // 2. 根据鼠标是否按下，决定是吸引力还是排斥力
+            let forceMultiplier;
+            if (mouse.isPressed) {
+                // 排斥力：方向相反，力量更大
+                forceMultiplier = -config.repulsionForce * 100 / distance;
+            } else {
+                // 吸引力
+                forceMultiplier = config.attractionForce * 100 / distance;
+            }
+
+            // 3. 将力应用到加速度，再更新速度
+            const ax = Math.cos(angle) * forceMultiplier;
+            const ay = Math.sin(angle) * forceMultiplier;
+
+            this.vx += ax;
+            this.vy += ay;
+
+            // 4. 应用摩擦力 (让粒子运动更自然，不会无限加速)
+            this.vx *= config.friction;
+            this.vy *= config.friction;
+
+            // 5. 更新位置
+            this.x += this.vx;
+            this.y += this.vy;
+
+            // 6. 边界检查 (碰到屏幕边缘反弹)
+            if (this.x < 0 || this.x > width) this.vx *= -0.8;
+            if (this.y < 0 || this.y > height) this.vy *= -0.8;
+        }
+
+        // 绘制粒子
+        draw() {
+            // 使用 HSL 颜色模式实现动态色彩
+            const currentHue = hue + this.colorOffset;
+            // 根据速度改变亮度，速度越快越亮
+            const speed = Math.sqrt(this.vx*this.vx + this.vy*this.vy);
+            const lightness = 50 + speed * 2; 
+
+            ctx.fillStyle = `hsl(${currentHue}, 80%, ${Math.min(100, lightness)}%)`;
+            
+            // 绘制圆形粒子
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    // --- 初始化场景 ---
+    function init() {
+        particles = [];
+        for (let i = 0; i < config.particleCount; i++) {
+            particles.push(new Particle());
+        }
+    }
+
+    // --- 动画循环 ---
+    function animate() {
+        // 关键技巧：实现拖尾效果
+        // 我们不使用 clearRect 完全清空画布，而是覆盖上一层半透明的黑色矩形。
+        // 这样上一帧的粒子不会马上消失，而是慢慢变淡。
+        ctx.fillStyle = `rgba(0, 0, 0, ${config.trailLength})`;
+        ctx.fillRect(0, 0, width, height);
+
+        // 更新全局色相
+        hue += config.colorSpeed;
+
+        // 更新并绘制所有粒子
+        particles.forEach(particle => {
+            particle.update();
+            particle.draw();
+        });
+
+        // 请求下一帧动画
+        requestAnimationFrame(animate);
+    }
+
+    // 启动！
+    init();
+    animate();
+
+    // 添加一个提示，几秒后消失
+    const hint = document.createElement('div');
+    hint.style.position = 'fixed';
+    hint.style.bottom = '20px';
+    hint.style.width = '100%';
+    hint.style.textAlign = 'center';
+    hint.style.color = 'white';
+    hint.style.fontFamily = 'Arial, sans-serif';
+    hint.style.pointerEvents = 'none';
+    hint.style.userSelect = 'none';
+    hint.innerHTML = '移动鼠标吸引粒子。<br>按住鼠标左键排斥粒子。';
+    document.body.appendChild(hint);
+    setTimeout(() => {
+        hint.style.opacity = '0';
+        hint.style.transition = 'opacity 2s';
+    }, 5000);
+
+</script>
+</body>
+</html>
+    
+  </body>
+  
+</html>
